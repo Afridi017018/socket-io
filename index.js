@@ -1,52 +1,57 @@
 const express = require("express");
-
-const http = require("http")
-
+const http = require("http");
 const { Server } = require("socket.io");
-
-const app = express();
-
 const cors = require("cors");
 
-app.use(cors())
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-
-// HTTP server
 const server = http.createServer(app);
 
 // Socket.IO server
-const io = new Server(server, {
-    cors: {
-        origin: "*",
-    }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-
+// In-memory message storage per room
+const rooms = {
+  room1: [],
+  room2: [],
+  room3: []
+};
 
 io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
 
-    console.log("User connected", socket.id);
+  // Join a room
+  socket.on("join_room", (room) => {
+    socket.join(room);
+    console.log(`${socket.id} joined ${room}`);
 
+    // Send previous messages of that room to this user
+    socket.emit("room_messages", { room, messages: rooms[room] });
 
-    socket.on("chat_message", (msg) => {
-        console.log("Message:", msg);
-        // Broadcast message to all clients
-        io.emit("chat_message", msg);
-    });
+    // Notify other members in the room
+    socket.to(room).emit("message", { system: true, text: `User ${socket.id} joined ${room}` });
+  });
 
+  // Send message to a specific room
+  socket.on("send_message", ({ room, text }) => {
+    const msg = { user: socket.id, text };
+    rooms[room].push(msg); // store message
 
-})
+    // Broadcast to all clients in that room
+    io.in(room).emit("message", msg);
+  });
 
+  // Leave a room
+  socket.on("leave_room", (room) => {
+    socket.leave(room);
+    socket.to(room).emit("message", { system: true, text: `User ${socket.id} left ${room}` });
+  });
 
-
-
-app.get("/", (req, res) => {
-    res.send("Server is running ✅");
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+  });
 });
 
-
-const port = 5000;
-
-server.listen(port, () => {
-    console.log(`server is running at http://localhost:${port}`)
-})
+server.listen(4000, () => console.log("Server running on http://localhost:4000"));
